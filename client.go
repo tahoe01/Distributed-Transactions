@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-
-	"github.com/dayuebai/Distributed-Transactions/utils"
 )
 
-var branchMap map[string]utils.Server
+var branchMap map[string]Server
 
 func readCommand() {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -28,7 +26,7 @@ func main() {
 		return
 	}
 	configFile := os.Args[1]
-	branchMap = utils.ReadConfigFile(configFile)
+	branchMap = ReadConfigFile(configFile)
 
 	readCommand()
 }

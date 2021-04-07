@@ -5,11 +5,9 @@ import (
 	"log"
 	"os"
 	"strconv"
-
-	"github.com/dayuebai/Distributed-Transactions/utils"
 )
 
-var branchMap map[string]utils.Server
+var branchMap map[string]Server
 var branchId, configFile string
 var port int
 var err error
@@ -24,7 +22,7 @@ func main() {
 		return
 	}
 	branchId, configFile = os.Args[1], os.Args[3]
-	branchMap = utils.ReadConfigFile(configFile)
+	branchMap = ReadConfigFile(configFile)
 	port, err = strconv.Atoi(os.Args[2])
-	utils.Check(err)
+	Check(err)
 }
