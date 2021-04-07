@@ -1,28 +1,34 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"os"
+
+	"github.com/dayuebai/Distributed-Transactions/utils"
 )
 
-type Server struct {
-	Ip string
-	Port int
-}
+var branchMap map[string]utils.Server
 
-var branchMap map[string]Server
-
-func readConfigFile(configFile string) {
-	fmt.Println(configFile)
+func readCommand() {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		fmt.Printf("Command: %v\n", scanner.Text())
+	}
 }
 
 func main() {
 	fmt.Printf("Client process started.\n")
+	log.SetPrefix("Client: ")
+	log.SetFlags(0)
 
 	if len(os.Args) != 2 {
 		fmt.Println("ERROR: not enough arguments. Usage: ./client [CONFIG_FILE_PATH]")
 		return
 	}
 	configFile := os.Args[1]
-	readConfigFile(configFile)
+	branchMap = utils.ReadConfigFile(configFile)
+
+	readCommand()
 }
