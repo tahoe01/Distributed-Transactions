@@ -5,12 +5,19 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/rpc"
 	"os"
 )
 
 var clientID string
 var branchMap map[string]Server
 var isBegin = false
+
+type Request struct {
+	Operation int // 1 for DEPOSIT, 2 for BALANCE, 3 for WITHDRAW, 4 for COMMIT, 5 for ABORT
+	Account string
+	Amount int
+}
 
 func pickRandomCoordinator() string {
 	servers := [5]string{"A", "B", "C", "D", "E"} // hard coding (being lazy)
@@ -20,6 +27,8 @@ func pickRandomCoordinator() string {
 func readCommand() {
 	var coordinator string
 	scanner := bufio.NewScanner(os.Stdin)
+	client, err := rpc.DialHTTP("tcp", "localhost:1234")
+	Check(err)
 
 	for scanner.Scan() {
 		switch cmd := scanner.Text(); cmd {
@@ -37,6 +46,11 @@ func readCommand() {
 			if isBegin {
 				// TODO: send cmd to coordinator
 				fmt.Printf("Coordinator: %v\n", coordinator)
+				req := Request{1, "abc", 0}
+				var reply string
+				err = client.Call("Handler.ExecCmd", &req, &reply)
+				Check(err)
+				fmt.Printf("response: %v\n", reply)
 			}
 		}
 	}
