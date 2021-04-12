@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Run All" type="CompoundRunConfigurationType">
+    <toRun name="Server B" type="ShConfigurationType" />
+    <toRun name="Client 2" type="ShConfigurationType" />
+    <toRun name="Server A" type="ShConfigurationType" />
+    <toRun name="Server E" type="ShConfigurationType" />
+    <toRun name="Client 1" type="ShConfigurationType" />
+    <toRun name="Server C" type="ShConfigurationType" />
+    <toRun name="Server D" type="ShConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>

@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"log"
-	"math/rand"
+	"time"
+	//"math/rand"
 	"net/rpc"
 	"os"
+	"strconv"
+	"strings"
 )
 
 var clientID string
@@ -14,43 +17,90 @@ var branchMap map[string]Server
 var isBegin = false
 
 type Request struct {
+	TransactionID string
 	Operation int // 1 for DEPOSIT, 2 for BALANCE, 3 for WITHDRAW, 4 for COMMIT, 5 for ABORT
 	Account string
 	Amount int
 }
 
+type Reply struct {
+	Status int // 0 for FAIL, 1 for SUCCESS
+	Msg string
+}
+
+func generateTransactionID() string {
+	nanoSecond := time.Now().UnixNano()
+	return fmt.Sprintf("%v.%v", strconv.FormatInt(nanoSecond, 10), clientID) // transaction ID Format: TS.clientID
+}
+
 func pickRandomCoordinator() string {
-	servers := [5]string{"A", "B", "C", "D", "E"} // hard coding (being lazy)
-	return servers[rand.Intn(5)]
+	// TODO: uncomment
+	//servers := [5]string{"A", "B", "C", "D", "E"} // hard coding (being lazy)
+	//return servers[rand.Intn(5)]
+	return "A"
+}
+
+func parseCmd(cmd string, transactionID string) Request {
+	if components := strings.Split(cmd, " "); len(components) == 2 {
+		return Request{transactionID, 2,components[1], -1 } // For BALANCE cmd, amount set to -1
+	} else {
+		amount, err := strconv.Atoi(components[2])
+		Check(err)
+		if components[0] == "DEPOSIT" {
+			return Request{transactionID, 1, components[1], amount}
+		} else { // WITHDRAW
+			return Request{transactionID, 3, components[1], amount * (-1)}
+		}
+	}
 }
 
 func readCommand() {
-	var coordinator string
+	var coordinator, transactionID string
+	var client *rpc.Client
+	var err error
 	scanner := bufio.NewScanner(os.Stdin)
-	client, err := rpc.DialHTTP("tcp", "localhost:1234")
-	Check(err)
 
 	for scanner.Scan() {
+		var req Request
+		var reply Reply
 		switch cmd := scanner.Text(); cmd {
 		case "BEGIN":
 			isBegin = true
+			transactionID = generateTransactionID()
 			coordinator = pickRandomCoordinator()
+			client, err = rpc.DialHTTP("tcp", fmt.Sprintf("%v:%v", branchMap[coordinator].Ip, branchMap[coordinator].Port))
+			Check(err)
 			fmt.Println("OK")
 		case "ABORT":
-			// TODO: send cmd to coordinator
-			isBegin = false
+			if isBegin {
+				req = Request{transactionID, 5, "", -1}
+				err = client.Call("Handler.DeliverCmd", &req, &reply)
+				Check(err)
+				fmt.Println(reply.Msg)
+				isBegin = false
+			}
 		case "COMMIT":
-			// TODO: send cmd to coordinator
+			if isBegin {
+				req = Request{transactionID, 4, "", -1}
+				err = client.Call("Handler.DeliverCmd", &req, &reply)
+				Check(err)
+				fmt.Printf("response: %v\n", reply.Msg)
+				// TODO: decide to print commit ok or aborted
+			}
 			isBegin = false
 		default:
 			if isBegin {
-				// TODO: send cmd to coordinator
-				fmt.Printf("Coordinator: %v\n", coordinator)
-				req := Request{1, "abc", 0}
-				var reply string
-				err = client.Call("Handler.ExecCmd", &req, &reply)
+				req = parseCmd(cmd, transactionID)
+				err = client.Call("Handler.DeliverCmd", &req, &reply)
 				Check(err)
-				fmt.Printf("response: %v\n", reply)
+
+				fmt.Println(reply.Msg)
+				if reply.Status == -1 {
+					isBegin = false
+					if reply.Msg == "NOT FOUND" {
+						fmt.Println("ABORTED")
+					}
+				}
 			}
 		}
 	}
