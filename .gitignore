@@ -118,4 +118,5 @@ Temporary Items
 # vendor/
 
 .idea
+.run
 
