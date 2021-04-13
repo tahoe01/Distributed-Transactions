@@ -179,7 +179,7 @@ func (h *Handler) CanCommit(args *Request, reply *Reply) error {
 	return nil
 }
 
-func (h *Handler) DoCommit(args *Request, reply *Reply) error { // TODO: Commit a transaction
+func (h *Handler) DoCommit(args *Request, reply *Reply) error { // Commit a transaction
 	//fmt.Printf("[DoCommit] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
 	commitTID, accountList := args.TransactionID, strings.Split(args.Account, ",")
 	accountMap.mu.Lock()
