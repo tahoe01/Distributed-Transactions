@@ -32,6 +32,6 @@ A distributed transaction system that supports transactions which read and write
   
 ## Contact
 
-Dayue Bai <dayueb2@illinois.edu>
+Dayue Bai `<dayueb2 AT illinois DOT edu>`
 
 
