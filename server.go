@@ -13,8 +13,7 @@ import (
 
 var branchMap map[string]Server
 var branchId, configFile string
-var port string
-var accountMap = AccountMap{&sync.Mutex{}, make(map[string]Account)}
+var accountMap = AccountMap{&sync.Mutex{}, make(map[string]*Account)}
 
 type Handler struct { } // RPC handler
 
@@ -43,7 +42,7 @@ type Account struct {
 
 type AccountMap struct {
 	mu *sync.Mutex
-	aMap map[string]Account
+	aMap map[string]*Account
 }
 
 
@@ -66,6 +65,17 @@ func getMaxWTs(twMap map[string]int, base string, threshold string) string {
 		}
 	}
 	return maxWTS
+}
+
+func isMinWTs(twMap map[string]int, tid string) bool {
+	isMin := true
+	for cur := range twMap {
+		if cur < tid {
+			isMin = false
+			break
+		}
+	}
+	return isMin
 }
 
 func readAccount(args *Request, reply *Reply) {
@@ -111,7 +121,7 @@ func writeAccount(args *Request, reply *Reply) {
 			newAccount := Account{&sync.Mutex{}, accountName, 0, "", make(map[string]void), make(map[string]int)}
 			newAccount.twMap[args.TransactionID] = args.Amount
 			accountMap.mu.Lock()
-			accountMap.aMap[accountName] = newAccount
+			accountMap.aMap[accountName] = &newAccount
 			accountMap.mu.Unlock()
 			*reply = Reply{0, "OK"}
 		} else { // withdraw
@@ -145,11 +155,43 @@ func (h *Handler) RunCmd(args *Request, reply *Reply) error {
 	return nil
 }
 
-func (h *Handler) CanCommit(args *Request, reply *Reply) error { // TODO: Commit a transaction
+func (h *Handler) CanCommit(args *Request, reply *Reply) error {
+	fmt.Printf("[CanCommit] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
+	commitTID, canCommit, accountList := args.TransactionID, true, strings.Split(args.Account, ",")
+	for _, name := range accountList {
+		if account, isExist := accountMap.aMap[name]; isExist {
+			if !isMinWTs(account.twMap, commitTID) {
+				// TODO: wait until other transaction (with smaller TID) commits/aborts
+				fmt.Println("Waiting for other transactions to commit...")
+			} else if account.committedValue + account.twMap[commitTID] < 0 {
+				canCommit = false
+				break
+			}
+		}
+	}
+	if canCommit {
+		*reply = Reply{0, "COMMIT OK"}
+	} else {
+		*reply = Reply{-1, "ABORTED"}
+	}
 	return nil
 }
 
 func (h *Handler) DoCommit(args *Request, reply *Reply) error { // TODO: Commit a transaction
+	fmt.Printf("[DoCommit] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
+	commitTID, accountList := args.TransactionID, strings.Split(args.Account, ",")
+	accountMap.mu.Lock()
+	defer accountMap.mu.Unlock()
+	for _, name := range accountList {
+		if _, isExist := accountMap.aMap[name]; isExist {
+			accountMap.aMap[name].mu.Lock()
+			accountMap.aMap[name].transactionID = commitTID
+			accountMap.aMap[name].committedValue += accountMap.aMap[name].twMap[commitTID]
+			delete(accountMap.aMap[name].twMap, commitTID)
+			accountMap.aMap[name].mu.Unlock()
+		}
+	}
+	*reply = Reply{0, "COMMIT OK"}
 	return nil
 }
 
@@ -159,15 +201,14 @@ func (h *Handler) DoAbort(args *Request, reply *Reply) error { // Abort a transa
 	accountMap.mu.Lock()
 	defer accountMap.mu.Unlock()
 	for name := range accountMap.aMap {
-		//account.mu.Lock()
 		accountMap.aMap[name].mu.Lock()
 		delete(accountMap.aMap[name].rtsList, abortTID) // remove corresponding read from RTS list if exists
 		delete(accountMap.aMap[name].twMap, abortTID) // remove corresponding write from TW list if exists
 		if accountMap.aMap[name].transactionID == "" && len(accountMap.aMap[name].twMap) == 0 { // Account not committed by any transaction && No wts in TW list => account should be removed
 			delete(accountMap.aMap, name)
+		} else {
+			accountMap.aMap[name].mu.Unlock()
 		}
-		//account.mu.Unlock()
-		accountMap.aMap[name].mu.Unlock()
 	}
 	*reply = Reply{-1, "ABORTED"}
 	return nil
@@ -178,6 +219,7 @@ func (h *Handler) DeliverCmd(args *Request, reply *Reply) error {
 	var client *rpc.Client
 	var err error
 	var branchReply Reply
+	var notFound bool
 
 	if args.Operation <= 3 { // DEPOSIT, WITHDRAW, BALANCE
 		branch := strings.Split(args.Account, ".")[0]
@@ -187,6 +229,9 @@ func (h *Handler) DeliverCmd(args *Request, reply *Reply) error {
 
 		fmt.Printf("branch reply: status (%v), msg(%v)\n", branchReply.Status, branchReply.Msg)
 		if branchReply.Status == -1 {
+			if branchReply.Msg == "NOT FOUND" {
+				notFound = true
+			}
 			args = &Request{args.TransactionID, 5, "", -1}
 		}
 	}
@@ -223,8 +268,11 @@ func (h *Handler) DeliverCmd(args *Request, reply *Reply) error {
 			fmt.Printf("abort response: %v\n", branchReply.Msg)
 		}
 	}
-
-	*reply = Reply{branchReply.Status, branchReply.Msg}
+	if notFound {
+		*reply = Reply{-1, "NOT FOUND, ABORTED"}
+	} else {
+		*reply = Reply{branchReply.Status, branchReply.Msg}
+	}
 	return nil
 }
 
@@ -247,12 +295,12 @@ func main() {
 	log.SetPrefix("Server: ")
 	log.SetFlags(0)
 
-	if len(os.Args) != 4 {
+	if len(os.Args) != 3 {
 		fmt.Println("ERROR: not enough arguments. Usage: ./server [BRANCH] [PORT] [CONFIG_FILE_PATH]")
 		return
 	}
-	branchId, port, configFile = os.Args[1], os.Args[2], os.Args[3]
+	branchId, configFile = os.Args[1], os.Args[2]
 	branchMap = ReadConfigFile(configFile)
 
-	server(port)
+	server(fmt.Sprintf("%v", branchMap[branchId].Port))
 }

@@ -14,7 +14,6 @@ import (
 
 var clientID string
 var branchMap map[string]Server
-var isBegin = false
 
 type Request struct {
 	TransactionID string
@@ -58,6 +57,8 @@ func readCommand() {
 	var coordinator, transactionID string
 	var client *rpc.Client
 	var err error
+	var accountWrite []string
+	isBegin := false
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for scanner.Scan() {
@@ -76,31 +77,33 @@ func readCommand() {
 				req = Request{transactionID, 5, "", -1}
 				err = client.Call("Handler.DeliverCmd", &req, &reply)
 				Check(err)
-				fmt.Println(reply.Msg)
 				isBegin = false
+				accountWrite = nil
+				fmt.Println(reply.Msg)
 			}
 		case "COMMIT":
 			if isBegin {
-				req = Request{transactionID, 4, "", -1}
+				req = Request{transactionID, 4, strings.Join(accountWrite, ","), -1}
 				err = client.Call("Handler.DeliverCmd", &req, &reply)
 				Check(err)
-				fmt.Printf("response: %v\n", reply.Msg)
-				// TODO: decide to print commit ok or aborted
+				isBegin = false
+				accountWrite = nil
+				fmt.Println(reply.Msg)
 			}
-			isBegin = false
 		default:
 			if isBegin {
+				info := strings.Split(cmd, " ")
+				if cmdType := info[0]; cmdType == "DEPOSIT" || cmdType == "WITHDRAW" {
+					accountWrite = append(accountWrite, info[1])
+				}
 				req = parseCmd(cmd, transactionID)
 				err = client.Call("Handler.DeliverCmd", &req, &reply)
 				Check(err)
-
-				fmt.Println(reply.Msg)
 				if reply.Status == -1 {
 					isBegin = false
-					if reply.Msg == "NOT FOUND" {
-						fmt.Println("ABORTED")
-					}
+					accountWrite = nil
 				}
+				fmt.Println(reply.Msg)
 			}
 		}
 	}
@@ -115,8 +118,8 @@ func main() {
 		fmt.Println("ERROR: not enough arguments. Usage: ./client [CONFIG_FILE_PATH]")
 		return
 	}
-	configFile := os.Args[1]
-	clientID = os.Args[2]
+	clientID = os.Args[1]
+	configFile := os.Args[2]
 	branchMap = ReadConfigFile(configFile)
 
 	readCommand()
