@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math/rand"
 	"time"
 	//"math/rand"
 	"net/rpc"
@@ -33,10 +34,8 @@ func generateTransactionID() string {
 }
 
 func pickRandomCoordinator() string {
-	// TODO: uncomment
-	//servers := [5]string{"A", "B", "C", "D", "E"} // hard coding (being lazy)
-	//return servers[rand.Intn(5)]
-	return "A"
+	servers := [5]string{"A", "B", "C", "D", "E"} // hard coding (being lazy)
+	return servers[rand.Intn(5)]
 }
 
 func parseCmd(cmd string, transactionID string) Request {
@@ -66,19 +65,21 @@ func readCommand() {
 		var reply Reply
 		switch cmd := scanner.Text(); cmd {
 		case "BEGIN":
-			isBegin = true
-			transactionID = generateTransactionID()
-			coordinator = pickRandomCoordinator()
-			client, err = rpc.DialHTTP("tcp", fmt.Sprintf("%v:%v", branchMap[coordinator].Ip, branchMap[coordinator].Port))
-			Check(err)
-			fmt.Println("OK")
+			if !isBegin {
+				isBegin = true
+				accountWrite = nil
+				transactionID = generateTransactionID()
+				coordinator = pickRandomCoordinator()
+				client, err = rpc.DialHTTP("tcp", fmt.Sprintf("%v:%v", branchMap[coordinator].Ip, branchMap[coordinator].Port))
+				Check(err)
+				fmt.Println("OK")
+			}
 		case "ABORT":
 			if isBegin {
 				req = Request{transactionID, 5, "", -1}
 				err = client.Call("Handler.DeliverCmd", &req, &reply)
 				Check(err)
 				isBegin = false
-				accountWrite = nil
 				fmt.Println(reply.Msg)
 			}
 		case "COMMIT":
@@ -87,13 +88,12 @@ func readCommand() {
 				err = client.Call("Handler.DeliverCmd", &req, &reply)
 				Check(err)
 				isBegin = false
-				accountWrite = nil
 				fmt.Println(reply.Msg)
 			}
 		default:
 			if isBegin {
 				info := strings.Split(cmd, " ")
-				if cmdType := info[0]; cmdType == "DEPOSIT" || cmdType == "WITHDRAW" {
+				if cmdType := info[0]; cmdType == "DEPOSIT" || cmdType == "WITHDRAW" { // Write operations
 					accountWrite = append(accountWrite, info[1])
 				}
 				req = parseCmd(cmd, transactionID)
@@ -101,7 +101,6 @@ func readCommand() {
 				Check(err)
 				if reply.Status == -1 {
 					isBegin = false
-					accountWrite = nil
 				}
 				fmt.Println(reply.Msg)
 			}
@@ -115,7 +114,7 @@ func main() {
 	log.SetFlags(0)
 
 	if len(os.Args) != 3 {
-		fmt.Println("ERROR: not enough arguments. Usage: ./client [CONFIG_FILE_PATH]")
+		fmt.Println("ERROR: not enough arguments. Usage: ./client [ClientID] [CONFIG_FILE_PATH]")
 		return
 	}
 	clientID = os.Args[1]

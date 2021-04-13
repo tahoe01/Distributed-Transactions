@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 var branchMap map[string]Server
@@ -33,7 +34,7 @@ type Reply struct {
 
 type Account struct {
 	mu *sync.Mutex
-	accountName string // format: A.xyz
+	accountName string // format: <BRANCH.ACCOUNT_NAME> e.g. A.xyz
 	committedValue int
 	transactionID string
 	rtsList map[string]void // List of transaction ids (timestamps) that have read the committed value.
@@ -87,9 +88,7 @@ func readAccount(args *Request, reply *Reply) {
 	if !isExist { // Account not found
 		*reply = Reply{-1, "NOT FOUND"}
 	} else { // Account exists
-		fmt.Println("account exists...")
 		account.mu.Lock()
-		fmt.Println("Pass lock")
 		accountTID, curTID := account.transactionID, args.TransactionID
 		maxWts := getMaxWTs(account.twMap, account.transactionID, curTID)
 		account.mu.Unlock()
@@ -101,9 +100,12 @@ func readAccount(args *Request, reply *Reply) {
 				*reply = Reply{0, fmt.Sprintf("%v = %v", args.Account, account.committedValue)}
 			} else if maxWts == curTID { // Write by curTID => read version of itself
 				*reply = Reply{0, fmt.Sprintf("%v = %v", args.Account, account.committedValue + account.twMap[curTID])}
-			} else { // TODO: wait until another transaction is committed or aborted and reapply the read rule
-				fmt.Println("case3...")
-				fmt.Println("Waiting for another transaction")
+			} else {
+				for account.transactionID != getMaxWTs(account.twMap, account.transactionID, curTID) { // Wait until other transactions are committed/aborted
+					time.Sleep(500 * time.Millisecond)
+				}
+				// Reapply the read rule
+				readAccount(args, reply)
 			}
 		} else {
 			*reply = Reply{-1, "ABORTED"}
@@ -146,7 +148,7 @@ func writeAccount(args *Request, reply *Reply) {
 
 // RPC
 func (h *Handler) RunCmd(args *Request, reply *Reply) error {
-	fmt.Printf("[RUN CMD] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
+	//fmt.Printf("[RUN CMD] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
 	if args.Operation == 2 { // BALANCE
 		readAccount(args, reply)
 	} else { // DEPOSIT/WITHDRAW : write or create
@@ -156,14 +158,14 @@ func (h *Handler) RunCmd(args *Request, reply *Reply) error {
 }
 
 func (h *Handler) CanCommit(args *Request, reply *Reply) error {
-	fmt.Printf("[CanCommit] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
+	//fmt.Printf("[CanCommit] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
 	commitTID, canCommit, accountList := args.TransactionID, true, strings.Split(args.Account, ",")
 	for _, name := range accountList {
 		if account, isExist := accountMap.aMap[name]; isExist {
-			if !isMinWTs(account.twMap, commitTID) {
-				// TODO: wait until other transaction (with smaller TID) commits/aborts
-				fmt.Println("Waiting for other transactions to commit...")
-			} else if account.committedValue + account.twMap[commitTID] < 0 {
+			for !isMinWTs(account.twMap, commitTID) { // Waiting for other transactions to commit...
+				time.Sleep(500 * time.Millisecond)
+			}
+			if account.committedValue + account.twMap[commitTID] < 0 {
 				canCommit = false
 				break
 			}
@@ -178,7 +180,7 @@ func (h *Handler) CanCommit(args *Request, reply *Reply) error {
 }
 
 func (h *Handler) DoCommit(args *Request, reply *Reply) error { // TODO: Commit a transaction
-	fmt.Printf("[DoCommit] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
+	//fmt.Printf("[DoCommit] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
 	commitTID, accountList := args.TransactionID, strings.Split(args.Account, ",")
 	accountMap.mu.Lock()
 	defer accountMap.mu.Unlock()
@@ -196,7 +198,7 @@ func (h *Handler) DoCommit(args *Request, reply *Reply) error { // TODO: Commit 
 }
 
 func (h *Handler) DoAbort(args *Request, reply *Reply) error { // Abort a transaction
-	fmt.Printf("[ABORT] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
+	//fmt.Printf("[ABORT] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
 	abortTID := args.TransactionID
 	accountMap.mu.Lock()
 	defer accountMap.mu.Unlock()
@@ -215,7 +217,7 @@ func (h *Handler) DoAbort(args *Request, reply *Reply) error { // Abort a transa
 }
 
 func (h *Handler) DeliverCmd(args *Request, reply *Reply) error {
-	fmt.Printf("[DELIVER CMD] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
+	//fmt.Printf("[DELIVER CMD] TransactionID: %v, Operation: %v, Account: %v, Amount: %v\n", args.TransactionID, args.Operation, args.Account, args.Amount)
 	var client *rpc.Client
 	var err error
 	var branchReply Reply
@@ -227,7 +229,7 @@ func (h *Handler) DeliverCmd(args *Request, reply *Reply) error {
 		err = client.Call("Handler.RunCmd", args, &branchReply)
 		Check(err)
 
-		fmt.Printf("branch reply: status (%v), msg(%v)\n", branchReply.Status, branchReply.Msg)
+		//fmt.Printf("branch reply: status (%v), msg(%v)\n", branchReply.Status, branchReply.Msg)
 		if branchReply.Status == -1 {
 			if branchReply.Msg == "NOT FOUND" {
 				notFound = true
@@ -242,7 +244,7 @@ func (h *Handler) DeliverCmd(args *Request, reply *Reply) error {
 			err = client.Call("Handler.CanCommit", args, &branchReply)
 			Check(err)
 
-			fmt.Printf("CanCommit response: %v\n", branchReply.Msg)
+			//fmt.Printf("CanCommit response: %v\n", branchReply.Msg)
 			if branchReply.Status == -1 { // There exists one branch that wants to abort the transaction => break out of the loop & abort!
 				canCommit = false
 				args = &Request{args.TransactionID, 5, "", -1}
@@ -254,8 +256,7 @@ func (h *Handler) DeliverCmd(args *Request, reply *Reply) error {
 				client, _ = rpc.DialHTTP("tcp",fmt.Sprintf("%v:%v", server.Ip, server.Port))
 				err = client.Call("Handler.DoCommit", args, &branchReply)
 				Check(err)
-
-				fmt.Printf("DoCommit response: %v\n", branchReply.Msg)
+				//fmt.Printf("DoCommit response: %v\n", branchReply.Msg)
 			}
 		}
 	}
@@ -264,8 +265,7 @@ func (h *Handler) DeliverCmd(args *Request, reply *Reply) error {
 			client, _ = rpc.DialHTTP("tcp",fmt.Sprintf("%v:%v", server.Ip, server.Port))
 			err = client.Call("Handler.DoAbort", args, &branchReply)
 			Check(err)
-
-			fmt.Printf("abort response: %v\n", branchReply.Msg)
+			//fmt.Printf("abort response: %v\n", branchReply.Msg)
 		}
 	}
 	if notFound {
@@ -296,7 +296,7 @@ func main() {
 	log.SetFlags(0)
 
 	if len(os.Args) != 3 {
-		fmt.Println("ERROR: not enough arguments. Usage: ./server [BRANCH] [PORT] [CONFIG_FILE_PATH]")
+		fmt.Println("ERROR: not enough arguments. Usage: ./server [BRANCH] [CONFIG_FILE_PATH]")
 		return
 	}
 	branchId, configFile = os.Args[1], os.Args[2]
