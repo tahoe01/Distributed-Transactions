@@ -1,7 +1,7 @@
 # Distributed-Transactions
 
 ## Overview 
-A distributed transaction system that supports transactions which read and write to distributed objects while ensuring full **ACI(D)** properties.
+A distributed transaction system that supports transactions which read and write to distributed objects while ensuring ACID properties.
 
 ## Project Structure
 
